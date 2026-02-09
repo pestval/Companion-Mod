@@ -1,0 +1,53 @@
+# ============================================================
+#  .gitignore — Files Git should NOT track
+# ============================================================
+#  Without this, Git would try to upload compiled binaries,
+#  Visual Studio cache files, and other generated junk.
+#  Your repo should only contain SOURCE CODE — things you
+#  wrote by hand. Everything else can be regenerated.
+# ============================================================
+
+# --- Visual Studio build output ---
+# These folders contain compiled .dll, .asi, .obj, .pdb files.
+# They get regenerated every time you hit Build.
+x64/
+Debug/
+Release/
+
+# --- Visual Studio user/cache files ---
+# These are per-machine settings (window layout, breakpoints,
+# debug sessions). They differ per developer and per PC.
+.vs/
+*.user
+*.suo
+*.ncb
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+
+# --- IntelliSense and browse database ---
+*.ipch
+ipch/
+Browse.VC.db
+Browse.VC.opendb
+
+# --- Build logs ---
+*.log
+*.tlog/
+
+# --- Compiled outputs (safety catch) ---
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.dll
+*.asi
+*.exe
+*.lib
+*.idb
+
+# --- OS junk ---
+Thumbs.db
+desktop.ini
+.DS_Store
