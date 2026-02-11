@@ -43,6 +43,8 @@
 
 #pragma once  // Ensures this file is only included once per compilation
 
+#include "CompanionCore.h"
+
 namespace EngineAdapter
 {
     // --- GAME STATE QUERIES ---
@@ -70,4 +72,44 @@ namespace EngineAdapter
     // GTA's text system is verbose — wrapping it here means
     // your gameplay code just calls one function.
     void DrawDebugText(const char* text, float x, float y);
+
+    bool PlayerExists();
+    bool IsPlayerDead();
+    bool IsPlayerInVehicle();
+    Vec3 GetPlayerPosition();
+
+    bool SpawnTestPed();
+    void DespawnTestPed();
+
+    bool IsKeyJustPressed(int vk);
+
+    bool DoesTestPedExist();
+    Vec3 GetTestPedPosition();
+    void SetTestPedPosition(const Vec3& pos);
+    void TeleportTestPedNearPlayer(float offsetX = 1.2f, float offsetY = 0.8f, float offsetZ = 0.0f);
+
+    // Replace the old one-arg declaration:
+    void TaskFollowPlayer(float followDist, float speed);
+
+    void ClearTestPedTasks();
+    void FreezeTestPed(bool freeze);
+
+    // ============================================================
+    // VEHICLE RIDING (V1 - simple + stable)
+    // ============================================================
+
+    // Returns the vehicle the player is currently in.
+    // Returns 0 if the player is not in a vehicle.
+    int GetPlayerVehicleHandle();
+
+    // Checks whether a seat in a vehicle is free.
+    // seatIndex:
+    //   -1 = driver
+    //    0 = front passenger
+    //    1 = rear left
+    //    2 = rear right
+    bool IsVehicleSeatFree(int vehicleHandle, int seatIndex);
+
+    // Warps our test ped into the given vehicle seat.
+    bool PutTestPedIntoVehicle(int vehicleHandle, int seatIndex);
 }
