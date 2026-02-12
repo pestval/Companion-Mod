@@ -112,4 +112,9 @@ namespace EngineAdapter
 
     // Warps our test ped into the given vehicle seat.
     bool PutTestPedIntoVehicle(int vehicleHandle, int seatIndex);
+
+    // ============================================================
+    // VEHICLE RIDING (V2)
+    // ============================================================
+    int GetTestPedVehicleHandle();
 }

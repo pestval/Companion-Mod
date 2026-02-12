@@ -43,6 +43,26 @@ static float DistSq(const Vec3& a, const Vec3& b)
     return dx * dx + dy * dy + dz * dz;
 }
 
+static bool TryWarpCompanionIntoAnySeat(int veh, int& outSeat)
+{
+    static const int kSeatOrder[] = { 0, 1, 2 }; // passenger, rear left, rear right
+
+    for (int seat : kSeatOrder)
+    {
+        if (EngineAdapter::IsVehicleSeatFree(veh, seat))
+        {
+            if (EngineAdapter::PutTestPedIntoVehicle(veh, seat))
+            {
+                outSeat = seat;
+                return true;
+            }
+        }
+    }
+
+    outSeat = -999;
+    return false;
+}
+
 static CompanionCore g_core;
 static CompanionState g_state;
 static uint32_t g_tickCount = 0;
@@ -68,10 +88,20 @@ static bool g_wasMissionActive = false;
 static bool g_companionWasSpawnedBeforeMission = false;
 static bool g_stayToggleBeforeMission = false;
 
+// DEBUG: Mission Gate Toggle (Learning Tool)
+static bool g_debugForceMissionGate = false;
+
 // Vehicle Riding V1
 static bool g_isRiding = false;
 static int  g_ridingVehicleHandle = 0;
 static bool g_wasPlayerInVehicle = false;
+
+// Vehicle Riding V2
+static int  g_ridingSeat = -999;
+static uint32_t g_lastRideAttemptTick = 0;
+static int  g_lastPlayerVehicleHandle = 0;
+
+static constexpr uint32_t RIDE_ATTEMPT_COOLDOWN_TICKS = 60; // ~1 second
 
 // Store our DLL module handle (needed later for file paths, etc.)
 HMODULE g_ModuleHandle = NULL;
@@ -101,9 +131,21 @@ void ScriptMain()
         g_tickCount++;
 
         // ------------------------------------------------
+        // DEBUG: Toggle Mission Gate (F9)
+        // ------------------------------------------------
+        if (EngineAdapter::IsKeyJustPressed(VK_F10))
+        {
+            g_debugForceMissionGate = !g_debugForceMissionGate;
+
+            Logger::Log("[DEBUG] ForceMissionGate toggled: %d (F10)",
+                (int)g_debugForceMissionGate);
+        }
+
+        // ------------------------------------------------
         // MISSION GATE (V1)
         // ------------------------------------------------
         bool isMissionActive = EngineAdapter::IsMissionActive();
+        isMissionActive = isMissionActive || g_debugForceMissionGate;
 
         // Mission started edge
         if (isMissionActive && !g_wasMissionActive)
@@ -126,6 +168,11 @@ void ScriptMain()
             g_isRiding = false;
             g_ridingVehicleHandle = 0;
             g_wasPlayerInVehicle = false;
+
+            // Clear Vehicle Riding V2 state
+            g_ridingSeat = -999;
+            g_lastRideAttemptTick = 0;
+            g_lastPlayerVehicleHandle = 0;
 
             // Reset timers so we resume cleanly
             g_lastFollowTick = 0;
@@ -164,12 +211,21 @@ void ScriptMain()
             g_ridingVehicleHandle = 0;
             g_wasPlayerInVehicle = false;
 
+            // Clear Vehicle Riding V2 state
+            g_ridingSeat = -999;
+            g_lastRideAttemptTick = 0;
+            g_lastPlayerVehicleHandle = 0;
+
             // Reset timers so follow re-issues immediately
             g_lastFollowTick = 0;
             g_lastTeleportTick = 0;
 
             // Clear mission-memory
             g_companionWasSpawnedBeforeMission = false;
+
+            // Clear mission gate
+            g_debugForceMissionGate = false;
+            Logger::Log("[DEBUG] ForceMissionGate auto-cleared on mission end");
         }
 
         g_wasMissionActive = isMissionActive;
@@ -204,8 +260,8 @@ void ScriptMain()
         g_core.Tick(ctx, g_state, cmd);
 
         // ------------------------------------------------
-// VEHICLE RIDING V1 (simple + stable)
-// ------------------------------------------------
+        // VEHICLE RIDING V1 (simple + stable)
+        // ------------------------------------------------
         {
             bool playerInVehicle = ctx.playerInVehicle;
 
@@ -231,6 +287,10 @@ void ScriptMain()
 
                 g_isRiding = false;
                 g_ridingVehicleHandle = 0;
+
+                g_ridingSeat = -999;
+                g_lastRideAttemptTick = 0;
+                g_lastPlayerVehicleHandle = 0;
             }
 
             // While player is in vehicle, try to ride (unless Stay)
@@ -238,39 +298,61 @@ void ScriptMain()
             {
                 int veh = EngineAdapter::GetPlayerVehicleHandle();
 
-                // Vehicle changed while riding (or we never latched one)
-                if (veh != 0 && (!g_isRiding || veh != g_ridingVehicleHandle))
+                // Detect vehicle change
+                bool vehicleChanged = (veh != 0 && veh != g_lastPlayerVehicleHandle);
+
+                // Keep riding state honest:
+                // If we think we're riding, confirm the ped is actually in that same vehicle.
+                if (g_isRiding)
                 {
+                    int pedVeh = EngineAdapter::GetTestPedVehicleHandle();
+                    if (pedVeh != g_ridingVehicleHandle || pedVeh == 0)
+                    {
+                        Logger::Log("[VehicleRideV2] Desync detected. Clearing riding state. pedVeh=%d latchedVeh=%d",
+                            pedVeh, g_ridingVehicleHandle);
+                        g_isRiding = false;
+                        g_ridingVehicleHandle = 0;
+                        g_ridingSeat = -999;
+                    }
+                }
+
+                // Attempt conditions:
+                // - If vehicle changed: try immediately
+                // - If not riding: try again on cooldown (seat might free up)
+                bool canAttempt = (g_tickCount - g_lastRideAttemptTick) >= RIDE_ATTEMPT_COOLDOWN_TICKS;
+
+                if (veh != 0 && (vehicleChanged || (!g_isRiding && canAttempt)))
+                {
+                    g_lastRideAttemptTick = g_tickCount;
+                    g_lastPlayerVehicleHandle = veh;
+
                     int chosenSeat = -999;
 
-                    if (EngineAdapter::IsVehicleSeatFree(veh, 0))
-                        chosenSeat = 0; // front passenger
-                    else if (EngineAdapter::IsVehicleSeatFree(veh, 1))
-                        chosenSeat = 1; // rear left
-                    else if (EngineAdapter::IsVehicleSeatFree(veh, 2))
-                        chosenSeat = 2; // rear right
-
-                    if (chosenSeat != -999)
+                    if (TryWarpCompanionIntoAnySeat(veh, chosenSeat))
                     {
-                        if (EngineAdapter::PutTestPedIntoVehicle(veh, chosenSeat))
-                        {
-                            g_isRiding = true;
-                            g_ridingVehicleHandle = veh;
+                        g_isRiding = true;
+                        g_ridingVehicleHandle = veh;
+                        g_ridingSeat = chosenSeat;
 
-                            // While riding, don't spam follow tasks.
-                            g_lastFollowTick = g_tickCount;
+                        // While riding, suppress follow spam
+                        g_lastFollowTick = g_tickCount;
 
-                            Logger::Log("[VehicleRide] Warped companion into vehicle=%d seat=%d", veh, chosenSeat);
-                        }
+                        Logger::Log("[VehicleRideV2] Warped companion into vehicle=%d seat=%d", veh, chosenSeat);
                     }
                     else
                     {
-                        // No seat free; let follow logic handle on-foot behavior.
+                        // No seat free: remain not riding; we will retry later (cooldown)
                         g_isRiding = false;
                         g_ridingVehicleHandle = 0;
+                        g_ridingSeat = -999;
+
+                        Logger::Log("[VehicleRideV2] No seat free in vehicle=%d (will retry on cooldown)", veh);
                     }
                 }
             }
+
+            if (!playerInVehicle)
+                g_lastPlayerVehicleHandle = 0;
 
             g_wasPlayerInVehicle = playerInVehicle;
         }
@@ -415,6 +497,15 @@ void ScriptMain()
                 EngineAdapter::DespawnTestPed();
                 Logger::Log("[Main] F7 despawn OK");
                 g_state.spawned = false;
+
+                // Clear vehicle/riding state on despawn
+                g_isRiding = false;
+                g_ridingVehicleHandle = 0;
+                g_wasPlayerInVehicle = false;
+
+                g_ridingSeat = -999;
+                g_lastRideAttemptTick = 0;
+                g_lastPlayerVehicleHandle = 0;
             }
         }
 
@@ -436,6 +527,15 @@ void ScriptMain()
             EngineAdapter::DespawnTestPed();
             Logger::Log("[Core] DespawnTestPed OK");
             g_state.spawned = false;
+
+            // Clear vehicle/riding state on despawn
+            g_isRiding = false;
+            g_ridingVehicleHandle = 0;
+            g_wasPlayerInVehicle = false;
+
+            g_ridingSeat = -999;
+            g_lastRideAttemptTick = 0;
+            g_lastPlayerVehicleHandle = 0;
         }
 
         // ------------------------------------------------

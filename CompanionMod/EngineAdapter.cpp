@@ -187,8 +187,6 @@ namespace EngineAdapter
         const Hash model = 0x7E6A64B7;
 
         invoke<void>(HASH_REQUEST_MODEL, model);
-        invoke<void>(HASH_FREEZE_ENTITY_POSITION, g_testPed, FALSE);
-        invoke<void>(HASH_SET_ENTITY_DYNAMIC, g_testPed, TRUE);
 
         // Wait up to ~2 seconds (120 frames)
         for (int i = 0; i < 120; ++i)
@@ -199,7 +197,10 @@ namespace EngineAdapter
         }
 
         if (!invoke<BOOL>(HASH_HAS_MODEL_LOADED, model))
+        {
+            invoke<void>(HASH_SET_MODEL_AS_NO_LONGER_NEEDED, model);
             return false;
+        }
 
         Vec3 p = GetPlayerPosition();
 
@@ -214,6 +215,9 @@ namespace EngineAdapter
 
         if (g_testPed == 0 || !invoke<BOOL>(HASH_DOES_ENTITY_EXIST, g_testPed))
             return false;
+
+        invoke<void>(HASH_FREEZE_ENTITY_POSITION, g_testPed, FALSE);
+        invoke<void>(HASH_SET_ENTITY_DYNAMIC, g_testPed, TRUE);
 
         // Mark as ours so we can delete cleanly
         invoke<void>(HASH_SET_ENTITY_AS_MISSION_ENTITY, g_testPed, TRUE, TRUE);
@@ -363,8 +367,8 @@ namespace EngineAdapter
     }
 
     // ============================================================
-// VEHICLE RIDING (V1)
-// ============================================================
+    // VEHICLE RIDING (V1)
+    // ============================================================
 
     int GetPlayerVehicleHandle()
     {
@@ -401,5 +405,15 @@ namespace EngineAdapter
 
         // Basic sanity: ped should still exist after.
         return invoke<BOOL>(HASH_DOES_ENTITY_EXIST, g_testPed) != 0;
+    }
+
+    // ============================================================
+    // VEHICLE RIDING (V2)
+    // ============================================================
+    int GetTestPedVehicleHandle()
+    {
+        if (!DoesTestPedExist()) return 0;
+        Vehicle v = invoke<Vehicle>(HASH_GET_VEHICLE_PED_IS_IN, g_testPed, FALSE);
+        return (int)v;
     }
 }
